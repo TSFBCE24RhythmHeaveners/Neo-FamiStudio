@@ -1,0 +1,233 @@
+name: Tuning desktop builds
+# master holds release-upload helpers. All other source branches and release
+# tags retain CI; publication payloads must not start application builds.
+on:
+  push:
+    branches-ignore: [master]
+    tags: ['r*', 'v*']
+    paths:
+      - 'FamiStudio/**'
+      - 'ThirdParty/**'
+      - 'Tests/**'
+      - 'Setup/**'
+      - 'SoundEngine/**'
+      - '*.sln'
+      - '*.props'
+      - '*.targets'
+      - 'global.json'
+      - 'NuGet.Config'
+      - 'nuget.config'
+      - '.github/workflows/tuning-desktop.yml'
+  pull_request:
+    paths:
+      - 'FamiStudio/**'
+      - 'ThirdParty/**'
+      - 'Tests/**'
+      - 'Setup/**'
+      - 'SoundEngine/**'
+      - '*.sln'
+      - '*.props'
+      - '*.targets'
+      - 'global.json'
+      - 'NuGet.Config'
+      - 'nuget.config'
+      - '.github/workflows/tuning-desktop.yml'
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Select the operation to run
+        type: choice
+        required: true
+        default: build
+        options:
+          - build
+          - publish-r12
+          - import-r13
+          - publish-r13
+permissions:
+  contents: read
+jobs:
+  desktop:
+    if: github.event_name != 'workflow_dispatch' || inputs.operation == 'build'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            project: FamiStudio.csproj
+            native: NesSndEmu.dll
+          - os: ubuntu-latest
+            project: FamiStudio.Linux.csproj
+            native: libNesSndEmu.so
+          - os: macos-15-intel
+            project: FamiStudio.Mac.csproj
+            native: NesSndEmu.dylib
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Manual runs launched from publication master build the source branch.
+          # Other runs keep the exact selected/event SHA, including PR merge SHA.
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' && 'feature/song-tuning-mixer' || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '8.0.x'
+      - name: Configure native library
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            cmake -S ThirdParty/NesSndEmu -B work/native -DCMAKE_BUILD_TYPE=Release '-DCMAKE_OSX_ARCHITECTURES=x86_64;arm64' -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+          elif [ "$RUNNER_OS" = "Windows" ]; then
+            cmake -S ThirdParty/NesSndEmu -B work/native -A x64
+          else
+            cmake -S ThirdParty/NesSndEmu -B work/native -DCMAKE_BUILD_TYPE=Release
+          fi
+      - name: Build and install native library
+        shell: bash
+        run: |
+          cmake --build work/native --config Release --parallel 2
+          cmake --install work/native --config Release --prefix "$GITHUB_WORKSPACE/FamiStudio"
+      - name: Check native audio ABI
+        shell: bash
+        run: |
+          python3 Tests/check_native_mixer.py "FamiStudio/${{ matrix.native }}"
+          python3 Tests/check_s5b_reset.py "FamiStudio/${{ matrix.native }}" work/native/s5b-reset.json
+      - name: Build desktop application
+        shell: bash
+        run: dotnet build "FamiStudio/${{ matrix.project }}" -c Release --nologo
+      - name: Run Windows playback and export regression
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          dotnet run --project Tests/TuningRegression -c Release -- work/tuning-tests
+          dotnet run --project Tests/TuningRegression -c Release -- --chip-curves work/tuning-tests
+          dotnet run --project Tests/TuningRegression -c Release -- --nsf-multi work/nsf-multi-tests
+          dotnet run --project Tests/TuningRegression -c Release --no-build -- --noise-envelopes work/noise-tests
+          dotnet run --project Tests/TuningRegression -c Release --no-build -- --envelope-decay work/decay-tests
+          dotnet run --project Tests/TuningRegression -c Release --no-build -- --pattern-delay work/delay-tests
+          dotnet run --project Tests/TuningRegression -c Release --no-build -- --loop-variant work/variant-tests
+          dotnet run --project Tests/TuningRegression -c Release --no-build -- --pattern-export work/export-tests
+          dotnet run --project Tests/TuningRegression -c Release --no-build -- --legacy-export work/legacy-tests
+          dotnet run --project Tests/TuningRegression -c Release --no-build -- --instrument-articulation work/articulation-tests
+          dotnet run --project Tests/TuningRegression -c Release --no-build -- --articulation-playback work/articulation-playback-tests
+          dotnet run --project Tests/TuningRegression -c Release --no-build -- --duty-envelope work/duty-tests
+          dotnet run --project Tests/TuningRegression -c Release --no-build -- --text-tempo work/text-tempo-tests
+          dotnet run --project Tests/TuningRegression -c Release --no-build -- --dpcm-effects work/dpcm-effects-tests
+          dotnet run --project Tests/TuningRegression -c Release --no-build -- --apu-instrument-export work/articulation-export-tests
+          dotnet run --project Tests/TuningRegression -c Release --no-build -- --update-rate work/update-rate-tests
+          dotnet run --project Tests/TuningRegression -c Release --no-build -- --envelope-clock work/envelope-clock-tests
+          dotnet run --project Tests/TuningRegression -c Release --no-build -- --engine-clocks work/engine-clock-tests
+          dotnet run --project Tests/TuningRegression -c Release --no-build -- --project-compression work/compression-tests
+          dotnet run --project Tests/TuningRegression -c Release --no-build -- --pulse-sweep work/sweep-tests
+          dotnet run --project Tests/TuningRegression -c Release --no-build -- --pulse-sweep-nsf work/sweep-nsf-tests
+          dotnet run --project Tests/TuningRegression -c Release --no-build -- --save-project work/save-tests
+          dotnet run --project Tests/TuningRegression -c Release --no-build -- --noise-follow work/noise-follow-tests
+          dotnet run --project Tests/TuningRegression -c Release --no-build -- --noise-pitch-migration work/noise-pitch-migration-tests
+          dotnet run --project Tests/TuningRegression -c Release --no-build -- --pcm-sample-rate-core work/pcm-rate-core
+          dotnet run --project Tests/TuningRegression -c Release --no-build -- --pcm-sample-rate-model work/pcm-rate-model
+          dotnet run --project Tests/TuningRegression -c Release --no-build -- --pcm-sample-rate-playback work/pcm-rate-playback
+          dotnet run --project Tests/TuningRegression -c Release --no-build -- --pcm-sample-rate-export work/pcm-rate-export
+
+  publish:
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'CharizeATOMIC/FamiStudio-Extended' && github.ref == 'refs/heads/master' && inputs.operation == 'publish-r12'
+    permissions:
+      contents: write
+    concurrency:
+      group: publish-verified-r12
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out this exact reviewed master revision
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify publisher and manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s  %s\n' '0a41d495716ac938eadc1f25576230747a323f1b9101f4781805537a0eb2d05b' 'r12-publish-manifest.json' | sha256sum --check --strict
+          printf '%s  %s\n' 'c2c6a7938638f160f9602b082707939979bac698ba9d3d65711bc4ebfa4eec24' 'r12-release-publish.py' | sha256sum --check --strict
+      - name: Reconstruct, verify and publish only the matching R12 draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TZ: Asia/Hong_Kong
+          GIT_CONFIG_COUNT: '1'
+          GIT_CONFIG_KEY_0: core.autocrlf
+          GIT_CONFIG_VALUE_0: 'true'
+        run: python3 r12-release-publish.py --publish --repository . --payload . --output "${{ runner.temp }}/r12-reconstructed"
+
+  import-r13:
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'CharizeATOMIC/FamiStudio-Extended' && github.ref == 'refs/heads/master' && inputs.operation == 'import-r13'
+    permissions:
+      contents: write
+    concurrency:
+      group: verified-r13-history-and-publication
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Verify the reviewed bundle and fast-forward only the expected source branch
+        shell: bash
+        env:
+          BUNDLE: FamiStudio-Extended-r13.bundle
+          BUNDLE_SHA: fd883276f3f32ba490b7fabe72e409dec5e94960dde776e6801bea32e0182776
+          BASE: 99c959e87a0ec660f576fe53ff5772227e897109
+          EXPECTED: 5d038c96b697f5e2539defc873ff72d31d279f4e
+          TARGET: refs/heads/feature/song-tuning-mixer
+        run: |
+          set -euo pipefail
+          printf '%s  %s\n' "$BUNDLE_SHA" "$BUNDLE" | sha256sum --check --strict
+          git cat-file -e "${BASE}^{commit}"
+          git bundle verify "$BUNDLE"
+          test "$(git bundle list-heads "$BUNDLE")" = "$EXPECTED $TARGET"
+          git fetch --no-tags "./$BUNDLE" "$TARGET:refs/heads/import-r13-verified"
+          test "$(git rev-parse refs/heads/import-r13-verified)" = "$EXPECTED"
+          git merge-base --is-ancestor "$BASE" "$EXPECTED"
+          test "$(git rev-list --count "$BASE..$EXPECTED")" = 1
+          current="$(git ls-remote --refs origin "$TARGET")"
+          if [[ "$current" == "${BASE}"$'\t'"${TARGET}" ]]; then
+            git push origin "$EXPECTED:$TARGET"
+          elif [[ "$current" != "${EXPECTED}"$'\t'"${TARGET}" ]]; then
+            echo 'Source branch differs from the approved base/tip. Refusing to update.' >&2
+            exit 1
+          fi
+          test "$(git ls-remote --refs origin "$TARGET")" = "${EXPECTED}"$'\t'"${TARGET}"
+
+  publish-r13:
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'CharizeATOMIC/FamiStudio-Extended' && github.ref == 'refs/heads/master' && inputs.operation == 'publish-r13'
+    permissions:
+      contents: write
+    concurrency:
+      group: verified-r13-history-and-publication
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify the pinned publisher and four-asset manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s  %s\n' 'f3445ec1efba15c47b8c9ab3e674d31bc1bf3728328314cc4c2e27e2f8c0e453' 'r13-publish-manifest.json' | sha256sum --check --strict
+          printf '%s  %s\n' '3fba247d1d753d6925a585e14b62e63d8ded5abffebf75c0d3f7ddbc3d630eaf' 'r13-release-publish.py' | sha256sum --check --strict
+      - name: Reconstruct and verify all four assets before publishing a new R13 prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          R13_OPERATION: publish-r13
+          TZ: Asia/Hong_Kong
+          GIT_CONFIG_COUNT: '1'
+          GIT_CONFIG_KEY_0: core.autocrlf
+          GIT_CONFIG_VALUE_0: 'true'
+        run: python3 r13-release-publish.py --publish --repository . --payload . --output "${{ runner.temp }}/r13-reconstructed"
