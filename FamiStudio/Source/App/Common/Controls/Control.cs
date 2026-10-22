@@ -27,6 +27,7 @@ namespace FamiStudio
 
         public delegate void ControlDelegate(Control sender);
         public delegate void PointerEventDelegate(Control sender, PointerEventArgs e);
+        public delegate void EventDelegate(Control sender, EventArgs e);
 
         public event PointerEventDelegate PointerDown;
         public event PointerEventDelegate PointerUp;
@@ -38,7 +39,12 @@ namespace FamiStudio
         public event PointerEventDelegate ContainerPointerDownNotify;
         public event PointerEventDelegate ContainerPointerUpNotify;
         public event PointerEventDelegate ContainerPointerMoveNotify;
+        public event EventDelegate        ContainerPointerEnterNotify;
+        public event EventDelegate        ContainerPointerLeaveNotify;
         public event PointerEventDelegate ContainerTouchClickNotify;
+        public event PointerEventDelegate ContainerTouchScaleBeginNotify;
+        public event PointerEventDelegate ContainerTouchScaleNotify;
+        public event PointerEventDelegate ContainerTouchScaleEndNotify;
         public event PointerEventDelegate ContainerTouchFlingNotify;
 
         protected Control()
@@ -96,10 +102,10 @@ namespace FamiStudio
         public void SendPointerDownDelayed(PointerEventArgs e) { OnPointerDownDelayed(e); }
         public void SendPointerUp(PointerEventArgs e) { OnPointerUp(e); PointerUp?.Invoke(this, e); SendContainerPointerUpNotify(e); }
         public void SendPointerMove(PointerEventArgs e) { OnPointerMove(e); PointerMove?.Invoke(this, e); SendContainerPointerMoveNotify(e); }
-        public void SendPointerEnter(EventArgs e) { if (IsContainedByMainWindow) OnPointerEnter(e); }
-        public void SendPointerLeave(EventArgs e) { if (IsContainedByMainWindow) OnPointerLeave(e); }
+        public void SendPointerEnter(EventArgs e) { if (IsContainedByMainWindow) { OnPointerEnter(e); SendContainerPointerEnterNotify(e); } }
+        public void SendPointerLeave(EventArgs e) { if (IsContainedByMainWindow) { OnPointerLeave(e); SendContainerPointerLeaveNotify(e); } }
         public void SendMouseWheel(PointerEventArgs e) { OnMouseWheel(e); SendContainerMouseWheelNotify(e); }
-        public void SendMouseHorizontalWheel(PointerEventArgs e) { OnMouseHorizontalWheel(e); }
+        public void SendMouseHorizontalWheel(PointerEventArgs e) { OnMouseHorizontalWheel(e); SendContainerMouseHorizontalWheelNotify(e); }
         public void SendKeyDown(KeyEventArgs e) { OnKeyDown(e); }
         public void SendKeyUp(KeyEventArgs e) { OnKeyUp(e); }
         public void SendChar(CharEventArgs e) { OnChar(e); }
@@ -108,9 +114,9 @@ namespace FamiStudio
         public void SendAddedToContainer() { OnAddedToContainer(); }
         public void SendTouchClick(PointerEventArgs e) { OnTouchClick(e); TouchClick?.Invoke(this, e); SendContainerTouchClickNotify(e); }
         public void SendTouchDoubleClick(PointerEventArgs e) { OnTouchDoubleClick(e); TouchDoubleClick?.Invoke(this, e); }
-        public void SendTouchScaleBegin(PointerEventArgs e) { OnTouchScaleBegin(e); }
-        public void SendTouchScale(PointerEventArgs e) { OnTouchScale(e); }
-        public void SendTouchScaleEnd(PointerEventArgs e) { OnTouchScaleEnd(e); }
+        public void SendTouchScaleBegin(PointerEventArgs e) { OnTouchScaleBegin(e); SendContainerTouchScaleBeginNotify(e); }
+        public void SendTouchScale(PointerEventArgs e) { OnTouchScale(e); SendContainerTouchScaleNotify(e); }
+        public void SendTouchScaleEnd(PointerEventArgs e) { OnTouchScaleEnd(e); SendContainerTouchScaleEndNotify(e); }
         public void SendTouchFling(PointerEventArgs e) { OnTouchFling(e); TouchFling?.Invoke(this, e); SendContainerTouchFlingNotify(e); }
 
         public void SendMouseDoubleClick(PointerEventArgs e)
@@ -123,7 +129,7 @@ namespace FamiStudio
             else
             {
                 OnPointerDown(e);
-                OnPointerUp(e);
+                //OnPointerUp(e); // TODO: We send pointer up anyway when we release the click? Make sure of this.
             }
         }
 
@@ -156,6 +162,18 @@ namespace FamiStudio
             while (c != null) 
             { 
                 c.OnContainerMouseWheelNotify(this, e);
+                if (c is Dialog)
+                    break;
+                c = c.ParentContainer;
+            }
+        } 
+
+        public void SendContainerMouseHorizontalWheelNotify(PointerEventArgs e) 
+        { 
+            var c = ParentContainer; 
+            while (c != null) 
+            { 
+                c.OnContainerMouseHorizontalWheelNotify(this, e);
                 if (c is Dialog)
                     break;
                 c = c.ParentContainer;
@@ -201,6 +219,32 @@ namespace FamiStudio
             }
         }
 
+        public void SendContainerPointerEnterNotify(EventArgs e)
+        {
+            var c = ParentContainer;
+            while (c != null)
+            {
+                c.OnContainerPointerEnterNotify(this, e);
+                c.ContainerPointerEnterNotify?.Invoke(this, e);
+                if (c is Dialog)
+                    break;
+                c = c.ParentContainer;
+            }
+        }
+
+        public void SendContainerPointerLeaveNotify(EventArgs e)
+        {
+            var c = ParentContainer;
+            while (c != null)
+            {
+                c.OnContainerPointerLeaveNotify(this, e);
+                c.ContainerPointerLeaveNotify?.Invoke(this, e);
+                if (c is Dialog)
+                    break;
+                c = c.ParentContainer;
+            }
+        }
+
         public void SendContainerTouchClickNotify(PointerEventArgs e)
         {
             var c = ParentContainer;
@@ -208,6 +252,45 @@ namespace FamiStudio
             {
                 c.OnContainerTouchClickNotify(this, e);
                 c.ContainerTouchClickNotify?.Invoke(this, e);
+                if (c is Dialog)
+                    break;
+                c = c.ParentContainer;
+            }
+        }
+        
+        public void SendContainerTouchScaleBeginNotify(PointerEventArgs e)
+        {
+            var c = ParentContainer;
+            while (c != null)
+            {
+                c.OnContainerTouchScaleBeginNotify(this, e);
+                c.ContainerTouchScaleBeginNotify?.Invoke(this, e);
+                if (c is Dialog)
+                    break;
+                c = c.ParentContainer;
+            }
+        }
+
+        public void SendContainerTouchScaleNotify(PointerEventArgs e)
+        {
+            var c = ParentContainer;
+            while (c != null)
+            {
+                c.OnContainerTouchScaleNotify(this, e);
+                c.ContainerTouchScaleNotify?.Invoke(this, e);
+                if (c is Dialog)
+                    break;
+                c = c.ParentContainer;
+            }
+        }
+
+        public void SendContainerTouchScaleEndNotify(PointerEventArgs e)
+        {
+            var c = ParentContainer;
+            while (c != null)
+            {
+                c.OnContainerTouchScaleEndNotify(this, e);
+                c.ContainerTouchScaleEndNotify?.Invoke(this, e);
                 if (c is Dialog)
                     break;
                 c = c.ParentContainer;

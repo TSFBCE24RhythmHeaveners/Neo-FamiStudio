@@ -37,20 +37,23 @@ namespace FamiStudio
         public string Text { set => glfwSetWindowTitle(window, value); }
         public bool IsLandscape => true;
         public bool IsWindowInFocus => glfwGetWindowAttrib(window, GLFW_FOCUSED) == GLFW_TRUE;
+        public bool IsCursorInWindow => glfwGetWindowAttrib(window, GLFW_HOVERED) == GLFW_TRUE;
         public bool IsAsyncDialogInProgress => container.IsDialogActive;
         public bool IsContextMenuActive => container.IsContextMenuActive;
         public bool IsOutOfProcessDialogInProgress => Platform.IsOutOfProcessDialogInProgress();
         public bool MobilePianoVisible { get => false; set => value = false; }
         public Point LastMousePosition => new Point(lastCursorX, lastCursorY);
         public Point LastContextMenuPosition => ScreenToWindow(contextMenuPoint);
-        public IntPtr Handle => glfwGetNativeWindow(window);
+        public IntPtr Handle => glfwGetNativeWindow(window, isWayland);
 
         private Control activeControl = null;
         private Control captureControl = null;
         private Control hoverControl = null;
+        private Control contextMenuControl = null;
         private int captureCookie;
         private int captureButton = -1;
         private int lastButtonPress = -1;
+        private int ignoreReleaseButton = -1;
         private Point contextMenuPoint = Point.Empty;
         private double lastTickTime = -1.0f;
         private bool quit = false;
@@ -475,6 +478,8 @@ namespace FamiStudio
 
             if (action == GLFW_PRESS)
             {
+                ignoreReleaseButton = -1;
+
                 if (captureControl != null)
                     return;
 
@@ -496,7 +501,7 @@ namespace FamiStudio
                     Math.Abs(lastClickX - lastCursorX) < 4 &&
                     Math.Abs(lastClickY - lastCursorY) < 4;
 
-                var doubleClick = multiClick && lastClickButton == button;
+                var doubleClick = multiClick && lastClickButton == button && button == GLFW_MOUSE_BUTTON_LEFT;
 
                 if (!doubleClick) 
                 {
@@ -546,6 +551,18 @@ namespace FamiStudio
             }
             else if (action == GLFW_RELEASE)
             {
+                // Don't release a capture with the wrong mouse button. This prevents an issue 
+                // where a user starts a capture, then presses and releases a second mouse button
+                // while still holding the first, incorrectly ending the capture operation.
+                if (captureButton != -1 && button != captureButton)
+                    return;
+
+                if (button == ignoreReleaseButton)
+                {
+                    ignoreReleaseButton = -1;
+                    return;
+                }
+
                 int cx;
                 int cy;
                 Control ctrl;
@@ -562,7 +579,10 @@ namespace FamiStudio
                 }
 
                 if (button == captureButton)
+                {
                     ReleasePointer();
+                    captureButton = -1;
+                }
 
                 if (ctrl != null)
                 {
@@ -638,11 +658,21 @@ namespace FamiStudio
 
             if (entered == 0)
             {
-                if (hoverControl != null && (!container.IsContextMenuActive || hoverControl == ContextMenu))
+                // Certain OS refuse to send pointer up when the cursor is outside the window. We send
+                // pointer up manually here and ignore the real release, otherwise we won't get a release 
+                // until the cursor returns to the window. This would cause events such as panning or 
+                // dragging to stop responding and then snap to a delta once the cursor returned.
+                if (captureControl != null)
                 {
-                    hoverControl.SendPointerLeave(EventArgs.Empty);
-                    hoverControl = null;
+                    var ctrl   = captureControl;
+                    var button = captureButton;
+
+                    ReleasePointer();
+                    ignoreReleaseButton = button;
+                    ctrl.SendPointerUp(new PointerEventArgs(MakeButtonFlags(button), lastCursorX - ctrl.WindowPosition.X, lastCursorY - ctrl.WindowPosition.Y));
                 }
+
+                ClearHoverControl();
             }
         }
 
@@ -653,6 +683,12 @@ namespace FamiStudio
                 hoverControl.SendPointerLeave(EventArgs.Empty);
                 hoverControl = null;
             }
+        }
+
+        private void ClearContextMenuControl()
+        {
+            contextMenuControl?.SendPointerLeave(EventArgs.Empty);
+            contextMenuControl = null;
         }
 
         private void ScrollCallback(IntPtr window, double xoffset, double yoffset)
@@ -924,16 +960,29 @@ namespace FamiStudio
 
         public void SetActiveControl(Control ctrl, bool animate = true)
         {
-            if (ctrl != null && ctrl != activeControl && (ctrl == PianoRoll || ctrl == Sequencer || ctrl == ProjectExplorer))
+            if (ctrl != null && ctrl != activeControl)
             {
-                activeControl.MarkDirty();
-                activeControl = ctrl;
-                activeControl.MarkDirty();
+                Control newCtrl = null;
+
+                if (ctrl == PianoRoll || ctrl.IsInContainer(PianoRoll))
+                    newCtrl = PianoRoll;
+                else if (ctrl == Sequencer || ctrl.IsInContainer(Sequencer))
+                    newCtrl = Sequencer;
+                else if (ctrl == ProjectExplorer || ctrl.IsInContainer(ProjectExplorer))
+                    newCtrl = ProjectExplorer;
+
+                if (newCtrl != null && newCtrl != activeControl)
+                {
+                    activeControl.MarkDirty();
+                    activeControl = newCtrl;
+                    activeControl.MarkDirty();
+                }
             }
         }
 
         public void ShowContextMenuAsync(ContextMenuOption[] options)
         {
+            contextMenuControl = activeControl;
             contextMenuPoint = WindowToScreen(new Point(lastCursorX, lastCursorY));
             container.ShowContextMenu(lastCursorX, lastCursorY, options);
             RefreshCursor(container.ContextMenu);
@@ -944,6 +993,7 @@ namespace FamiStudio
         {
             container.HideContextMenu();
             ClearHoverControl();
+            ClearContextMenuControl();
         }
 
         public void InitDialog(Dialog dialog)

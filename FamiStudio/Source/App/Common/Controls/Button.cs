@@ -37,6 +37,7 @@ namespace FamiStudio
         private bool vibrateOnClick;
         private bool vibrateOnRightClick;
         private bool bottomText;
+        private bool lastPressDoubleClick;
         private byte dimming = 64;
         private byte margin = 4;
         private Font font;
@@ -232,6 +233,12 @@ namespace FamiStudio
                 e.MarkHandled();
         }
 
+        protected override void OnMouseDoubleClick(PointerEventArgs e)
+        {
+            press = true;
+            lastPressDoubleClick = true; 
+        }
+
         protected override void OnPointerDown(PointerEventArgs e)
         {
             var canRightClick = RightClick != null;
@@ -254,10 +261,12 @@ namespace FamiStudio
 
             if (Enabled && (!e.IsTouchEvent && e.Left || (e.Right && canRightClick)))
             {
-                if (clickOnMouseUp || e.IsTouchEvent)
+                // The lastPressDoubleClick check prevents misfiring for clickOnMouseUp.
+                if (e.IsTouchEvent || (clickOnMouseUp && !lastPressDoubleClick))
                     TriggerClickEvent(e, e.Left);
             }
 
+            lastPressDoubleClick = false;
             SetAndMarkDirty(ref press, false);
         }
 

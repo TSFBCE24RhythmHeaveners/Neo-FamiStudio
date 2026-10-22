@@ -32,9 +32,22 @@ namespace FamiStudio
         {
         }
 
+        public virtual void OnContainerMouseHorizontalWheelNotify(Control control, PointerEventArgs e)
+        {
+        }
+
         public virtual void OnContainerPointerMoveNotify(Control control, PointerEventArgs e)
         {
         }
+
+        public virtual void OnContainerPointerEnterNotify(Control control, EventArgs e)
+        {
+        }
+
+        public virtual void OnContainerPointerLeaveNotify(Control control, EventArgs e)
+        {
+        }
+
 
         public virtual void OnContainerPointerDownNotify(Control control, PointerEventArgs e)
         {
@@ -45,6 +58,18 @@ namespace FamiStudio
         }
 
         public virtual void OnContainerTouchClickNotify(Control control, PointerEventArgs e)
+        {
+        }
+
+        public virtual void OnContainerTouchScaleBeginNotify(Control control, PointerEventArgs e)
+        {
+        }
+
+        public virtual void OnContainerTouchScaleNotify(Control control, PointerEventArgs e)
+        {
+        }
+
+        public virtual void OnContainerTouchScaleEndNotify(Control control, PointerEventArgs e)
         {
         }
 

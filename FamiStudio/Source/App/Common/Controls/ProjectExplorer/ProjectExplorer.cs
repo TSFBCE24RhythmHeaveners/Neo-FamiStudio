@@ -987,7 +987,6 @@ namespace FamiStudio
             play.Click += (s) => App.PreviewDPCMSample(sample, false);
             play.RightClick += (s) => App.PreviewDPCMSample(sample, true);
             play.ClickOnMouseUp = true;
-            play.SetSupportsDoubleClick(true);
 
             var label = CreateLabel(panel, sample.Name, true, icon.Right + marginX, 0, play.Left - icon.Right - marginX * 2, true);
             label.MouseDoubleClick += (s, e) => EditDPCMSampleProperties(sample);
@@ -2284,6 +2283,11 @@ namespace FamiStudio
         }
         */
 
+        protected override void OnPointerEnter(EventArgs e)
+        {
+            App.SetToolTip(tooltip);
+        }
+
         protected override void OnPointerLeave(EventArgs e)
         {
             App.SequencerShowExpansionIcons = false;
@@ -2380,6 +2384,14 @@ namespace FamiStudio
             ReleasePointer();
         }
 
+        private void UpdateTooltipControl(Control control)
+        {
+            var tooltip = control.ToolTip;
+            if (string.IsNullOrEmpty(tooltip))
+                tooltip = control.ParentContainer.ToolTip;
+            App.SetToolTip(tooltip);
+        }
+
         //protected override void OnMouseWheel(PointerEventArgs e)
         //{
         //    if (!e.Handled)
@@ -2398,6 +2410,16 @@ namespace FamiStudio
             }
         }
 
+        public override void OnContainerPointerDownNotify(Control control, PointerEventArgs e)
+        {
+            UpdateTooltipControl(control);
+        }
+
+        public override void OnContainerPointerEnterNotify(Control control, EventArgs e)
+        {
+            UpdateTooltipControl(control);
+        }
+
         public override void OnContainerPointerMoveNotify(Control control, PointerEventArgs e)
         {
             var winPos = control.ControlToWindow(e.Position);
@@ -2406,11 +2428,6 @@ namespace FamiStudio
 
             if (ctrl != null)
             {
-                var tooltip = ctrl.ToolTip;
-                if (string.IsNullOrEmpty(tooltip))
-                    tooltip = ctrl.ParentContainer.ToolTip;
-                App.SetToolTip(tooltip);
-
                 if (!Platform.IsMobile)
                 {
                     App.SequencerShowExpansionIcons = (ctrl.UserData is Instrument) || (ctrl.ParentContainer.UserData is Instrument);

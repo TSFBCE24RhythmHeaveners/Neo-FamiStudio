@@ -6142,6 +6142,8 @@ namespace FamiStudio
                 return;
             }
 
+            UpdateToolTip(e);
+
             bool left  = e.Left;
             bool right = e.Right;
 
@@ -6149,6 +6151,7 @@ namespace FamiStudio
                 return;
 
             UpdateCursor();
+            UpdateHover(e);
 
             // General stuff.
             if (HandleMouseDownPan(e)) goto Handled;
@@ -9531,7 +9534,7 @@ namespace FamiStudio
             UpdateCaptureOperation(e.X, e.Y);
             UpdateHover(e);
 
-            if (middle)
+            if (middle && panning)
                 DoScroll(e.X - mouseLastX, e.Y - mouseLastY);
 
             UpdateToolTip(e);
